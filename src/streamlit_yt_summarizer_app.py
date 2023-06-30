@@ -97,7 +97,7 @@ def main():
             st.markdown(get_file_download_link(
                 'summary_english.txt'), unsafe_allow_html=True)
             st.markdown(get_file_download_link(
-                'output.mp3'), unsafe_allow_html=True)
+                './data/speech/output.mp3'), unsafe_allow_html=True)
 
 
 def get_file_download_link(filename):
