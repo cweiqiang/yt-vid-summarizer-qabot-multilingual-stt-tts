@@ -52,26 +52,31 @@ qa = RetrievalQA.from_chain_type(
     retriever=db.as_retriever()
 )
 
-if "history" not in st.session_state:
-    st.session_state.history = []
 
-# Display previous Q&A
-for q_and_a in st.session_state.history:
-    st.markdown(f"**Q:** {q_and_a['question']}")
-    st.markdown(f"**A:** {q_and_a['answer']}")
+# if "history" not in st.session_state:
+#     st.session_state.history = []
+#     print ("done")
+#     print("st.session_state.history: ", st.session_state.history)
+#     print("st.session_state.history: ", st.session_state['history'])
 
-# Get the user question
-question = st.text_input("Ask a question:")
+# # Display previous Q&A
+# for q_and_a in st.session_state.history:
+#     st.markdown(f"**Q:** {q_and_a['question']}")
+#     st.markdown(f"**A:** {q_and_a['answer']}")
 
-if question:
-    # Run the QA chain to query the data
-    answer = qa.run(question)
-    st.session_state.history.append({"question": question, "answer": answer})
+# # Get the user question
+# question = st.text_input("Ask a question:")
 
-    # Display the answer
-    st.markdown(f"**Q:** {question}")
-    st.markdown(f"**A:** {answer}")
-########################################
+# if question:
+#     # Run the QA chain to query the data
+#     answer = qa.run(question)
+#     st.session_state.history.append({"question": question, "answer": answer})
+
+#     # Display the answer
+#     st.markdown(f"**Q:** {question}")
+#     st.markdown(f"**A:** {answer}")
+
+# #######################################
 # if "history" not in st.session_state:
 #     st.session_state.history = []
 
@@ -94,28 +99,28 @@ if question:
 #         message_placeholder.markdown(full_response)
 #     st.session_state.history.append(
 #         {"role": "assistant", "content": full_response})
-#######################################################
-# if "history" not in st.session_state:
-#     st.session_state.history = []
+######################################################
+if "history" not in st.session_state:
+    st.session_state.history = []
 
-# # Display previous Q&A
-# for q_and_a in st.session_state.history:
-#     st.markdown(f"**Q:** {q_and_a['question']}")
-#     st.markdown(f"**A:** {q_and_a['answer']}")
+# Display previous Q&A
+for q_and_a in st.session_state.history:
+    st.markdown(f"**Q:** {q_and_a['question']}")
+    st.markdown(f"**A:** {q_and_a['answer']}")
 
-# # Get the user question
-# question = st.text_input("Ask a question:")
+# Get the user question
+question = st.text_input("Ask a question:")
 
-# if question:
-#     # Run the QA chain to query the data
-#     answer = qa.run(question)
-#     st.session_state.history.append({"question": question, "answer": answer})
+if question:
+    # Run the QA chain to query the data
+    answer = qa.run(question)
+    st.session_state.history.append({"question": question, "answer": answer})
 
-#     # Display the answer
-#     st.markdown(f"**Q:** {question}")
-#     st.markdown(f"**A:** {answer}")
+    # Display the answer
+    st.markdown(f"**Q:** {question}")
+    st.markdown(f"**A:** {answer}")
 
-###################################################################
+# ##################################################################
 
 # # Initialize chat history
 # if "messages" not in st.session_state:
