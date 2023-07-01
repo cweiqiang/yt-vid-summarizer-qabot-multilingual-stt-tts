@@ -55,8 +55,10 @@ class Translation:
         and writes the translated document to a text file. Audio reading of
         the translated document is also generated unless opted out.
 
-        If qa_str is given, translates text string from QA bot to English for 
-        LLM to process. 
+        If qa_str is given, where qa_response is False, translates text string 
+        from QA bot to English for LLM to process. If qa_response is True, 
+        translates LLM's response from English to user's language, along with
+        audio clip generated
 
         Args:
             filepath (str, optional): filepath to text document that is 
@@ -70,6 +72,8 @@ class Translation:
                 Defaults to 'utf-8'.
             audio (bool, optional): Choice of whether to generate audio file for
                 translated. Defaults to True.
+            qa_response (bool, optional): Whether input is response from QAbot 
+                pending to translate for user. Defaults to False.
 
         Returns:
             _type_: _description_
