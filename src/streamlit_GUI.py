@@ -1,18 +1,26 @@
 # https://docs.streamlit.io/knowledge-base/tutorials/build-conversational-apps
 '''
+
+KSP2: https://www.youtube.com/watch?v=SwKYq17W-_s&t=15s
+KSP1: https://www.youtube.com/watch?v=YUpPDAqrf48
+CIV5: https://www.youtube.com/watch?v=f5VQ_c5v4XM
+CIV5: https://www.youtube.com/watch?v=iDivkbzCu90&t=260s
+AOE4: https://www.youtube.com/watch?v=WjZiRvqjov8
+
+
 completed tasks:
 1. implement langchain query
 2. implement translation
 3. implement audio output
 4. implement video embedding
+1. implement audio input
 
 remaining tasks:
-1. implement audio input
+
 2. fix the error in _last.mp3
 3. position the question input box at the bottom
 4. add docstring and type hints
 5. modularize the qa_bot() function
-
 
 '''
 import re
@@ -35,8 +43,11 @@ from langchain.document_loaders import YoutubeLoader
 from langchain.embeddings import VertexAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
-from translation import Translation
+from audio_recorder_streamlit import audio_recorder
+import speech_recognition as sr
 import translators as ts
+import io
+import soundfile as sf
 
 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = './aiap-13-ds-7e16bb946970.json'
 
@@ -55,10 +66,21 @@ def youtube_video_url_is_valid(url: str) -> bool:
     return match is not None
 
 def obtain_transcript(url: str) -> str:
-
+    print(4, 'entered')
     try:
         loader = YoutubeLoader.from_youtube_url(url, language="en-US")
-        return loader.load() # full transcript is return
+        # loader = YoutubeLoader.from_youtube_url(url, add_video_info=True, language=["en"], translation="en")
+        transcript = loader.load()
+        # # check if the returned transcript starts with 'Error'
+        # if transcript.startswith('Error'):
+        #     # If so, initialize the loader again without specifying the language and translation
+            
+        #     loader = YoutubeLoader.from_youtube_url(url, add_video_info=True)
+        #     transcript = loader.load()
+        #     print(0, transcript[:40])
+        print(1, transcript[:40])
+        return transcript # full transcript is return
+        
     except Exception as e:
         return f"Error while loading YouTube video and transcript: {e}"
 
@@ -169,7 +191,24 @@ def qa_bot(qa, language):
             st.audio(f"a_audio_{lang_dict[language]}_{i}.mp3", format='audio/mp3')
 
     # Get the new question
-    question = st.text_input("Ask a question:")
+    col1, col2 = st.columns(2)
+    with col1:
+        question = st.text_input("Ask a question:")
+    with col2:
+        audio_data = audio_recorder()
+        if audio_data is not None:
+            with open('audio.wave', 'wb') as f:
+                f.write(audio_data)
+            r = sr.Recognizer()
+            with sr.AudioFile('audio.wave') as source:
+                audio = r.record(source)
+            
+            try:
+                question = r.recognize_google(audio)
+            except sr.UnknownValueError:
+                st.write("Could not understand audio")
+            except sr.RequestError as e:
+                st.write("Couldn't request", e)
 
     # generate answer for the user's question
     if question:
@@ -231,7 +270,6 @@ def initialize_lang():
     return selected_language
 
 def initialize_others(language):
-
     # Initialize qa in session state if it doesn't exist
     if 'qa' not in st.session_state:
         st.session_state['qa'] = None
@@ -300,8 +338,9 @@ def main():
         with st.spinner("Summarizing..."):
 
             transcript = obtain_transcript(url)
-            summarize(transcript)
-                        
+            print(2, transcript[:40])
+
+            summarize(transcript)                                    
 
             # create qa retriever for subsequent QA session
             st.session_state['qa'] = create_qa_retriever(transcript)
