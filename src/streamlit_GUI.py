@@ -1,6 +1,19 @@
 # https://docs.streamlit.io/knowledge-base/tutorials/build-conversational-apps
 '''
-streamlit run streamlit_yt_QA_bot.py
+completed tasks:
+1. implement langchain query
+2. implement translation
+3. implement audio output
+4. implement video embedding
+
+remaining tasks:
+1. implement audio input
+2. fix the error in _last.mp3
+3. position the question input box at the bottom
+4. add docstring and type hints
+5. modularize the qa_bot() function
+
+
 '''
 import re
 import os
@@ -22,8 +35,6 @@ from langchain.document_loaders import YoutubeLoader
 from langchain.embeddings import VertexAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
-from pydub import AudioSegment
-from pydub.playback import play
 from translation import Translation
 import translators as ts
 
@@ -46,7 +57,6 @@ def youtube_video_url_is_valid(url: str) -> bool:
 def obtain_transcript(url: str) -> str:
 
     try:
-        print('url1 is: \n', url)
         loader = YoutubeLoader.from_youtube_url(url, language="en-US")
         return loader.load() # full transcript is return
     except Exception as e:
@@ -56,16 +66,17 @@ def obtain_transcript(url: str) -> str:
 def summarize(transcript: str) -> str:
     try:
         # llm = OpenAI(temperature=0.6, openai_api_key=api_key)
-        llm = VertexAI(temperature=0.3)
+        llm = VertexAI(temperature=0.3, max_output_tokens = 512)
         prompt = PromptTemplate(
             template="""Summarize the youtube video whose transcript is provided within backticks \
             ```{text}```
             """, input_variables=["text"]
         )
         combine_prompt = PromptTemplate(
+
             template="""Combine all the youtube video transcripts  provided within backticks \
             ```{text}```
-            Provide a summary between 50-100 sentences.
+            Provide a summary within 400 words.
             """, input_variables=["text"]
         )
         text_splitter = RecursiveCharacterTextSplitter(
@@ -77,6 +88,8 @@ def summarize(transcript: str) -> str:
         answer = chain.run(text)
     except Exception as e:
         return f"Error while processing and summarizing text: {e}"
+
+    st.session_state["summary_en"] = answer.strip()
 
     return answer.strip()
 
@@ -108,68 +121,157 @@ def create_qa_retriever(transcript: str):
 
     return qa
 
-def qa_bot(qa, language, translator):
+def qa_bot(qa, language):
 
     # Display previous Q&A
     for i, q_and_a in enumerate(st.session_state.history):
-        if language:
-            q_trans = ts.translate_text(query_text = q_and_a['question'],
-                                        from_language=lang_dict[language],
-                                        to_language='en',
-                                        translator = 'google')  
-            a_trans = ts.translate_text(query_text = q_and_a['answer'],
+        if language != 'English':
+
+            q_trans = ts.translate_text(query_text = q_and_a['q_en'],
+                                        from_language='en',
+                                        to_language=lang_dict[language],
+                                        translator = 'google')      
+                    
+            a_trans = ts.translate_text(query_text = q_and_a['a_en'],
                                         from_language='en',
                                         to_language=lang_dict[language],
                                         translator = 'google')  
 
             # if not already translated to the same language before
-            if st.session_state.history[i].get('q_trans') is None:
-                st.session_state.history[i]['q_trans'] = q_trans
-                st.session_state.history[i]['a_trans'] = a_trans
-        
-            st.markdown(f"**Q_translate:** {q_and_a['q_trans']}")
-            st.markdown(f"**A_translate:** {q_and_a['a_trans']}")
-        else:
-            st.markdown(f"**Q:** {q_and_a['question']}")
-            st.markdown(f"**A:** {q_and_a['answer']}")
+            if st.session_state.history[i].get(f'q_{lang_dict[language]}') is None:
+                st.session_state.history[i][f'q_{lang_dict[language]}'] = q_trans
+                st.session_state.history[i][f'a_{lang_dict[language]}'] = a_trans
+            
+            if not os.path.exists(f"q_audio_{lang_dict[language]}_{i}.mp3"): 
+                q_audio = gTTS(text=q_and_a[f'q_{lang_dict[language]}'], lang=lang_dict[language], slow=False)
+                a_audio = gTTS(text=q_and_a[f'a_{lang_dict[language]}'], lang=lang_dict[language], slow=False)
+                q_audio.save(f"q_audio_{lang_dict[language]}_{i}.mp3")              
+                a_audio.save(f"a_audio_{lang_dict[language]}_{i}.mp3")           
+               
+            st.markdown(f"**Q_translate:** {q_and_a[f'q_{lang_dict[language]}']}")
+            st.audio(f"q_audio_{lang_dict[language]}_{i}.mp3", format='audio/mp3')
 
-    # Get the user question
+            st.markdown(f"**A_translate:** {q_and_a[f'a_{lang_dict[language]}']}")
+            st.audio(f"a_audio_{lang_dict[language]}_{i}.mp3", format='audio/mp3')
+        
+        # everything in English
+        else:
+            if not os.path.exists(f"q_audio_{lang_dict[language]}_{i}.mp3"): 
+                q_audio = gTTS(text=q_and_a['q_en'], lang='en', slow=False)
+                a_audio = gTTS(text=q_and_a['a_en'], lang='en', slow=False)
+                q_audio.save(f"q_audio_{lang_dict[language]}_{i}.mp3")              
+                a_audio.save(f"a_audio_{lang_dict[language]}_{i}.mp3")
+
+            st.markdown(f"**Q:** {q_and_a['q_en']}")
+            st.audio(f"q_audio_{lang_dict[language]}_{i}.mp3", format='audio/mp3')
+
+            st.markdown(f"**A:** {q_and_a['a_en']}")
+            st.audio(f"a_audio_{lang_dict[language]}_{i}.mp3", format='audio/mp3')
+
+    # Get the new question
     question = st.text_input("Ask a question:")
 
+    # generate answer for the user's question
     if question:
         # Run the QA chain to query the data
-        if language:
-            # q_eng = translator.translate_text(qa_str = question, input_lang=language)
-            q_eng = ts.translate_text(query_text = question,
+        if language != 'English':
+            q_trans = question
+            q_en = ts.translate_text(query_text = q_trans,
                                         from_language=lang_dict[language],
                                         to_language='en',
                                         translator = 'google')  
-            print('3', q_eng)
-            answer = st.session_state['qa'].run(q_eng)
-            # a_trans = translator.translate_text(qa_response = answer, output_lang=language)
-            a_trans = ts.translate_text(query_text = answer,
+            q_audio = gTTS(text=q_trans, lang=lang_dict[language], slow=False)
+            q_audio.save(f"q_audio_{lang_dict[language]}_last.mp3")              
+            st.markdown(f"**Q_translate:** {q_trans}")
+            st.audio(f"q_audio_{lang_dict[language]}_last.mp3", format='audio/mp3')
+
+            a_en = st.session_state['qa'].run(q_en)
+            a_trans = ts.translate_text(query_text = a_en,
                                         from_language='en',
                                         to_language=lang_dict[language],
                                         translator = 'google')  
-            print('4', a_trans)
-            st.session_state.history.append({"question": q_eng, 
-                                             "answer": answer,
-                                             "q_trans": question,
-                                             "a_trans": a_trans
-                                             })
-            # Display the answer        
-            # st.markdown(f"**Q:** {q_eng}")
-            st.markdown(f"**Q_translate:** {question}")
-            # st.markdown(f"**A:** {answer}")
+            a_audio = gTTS(text=a_trans, lang=lang_dict[language], slow=False)
+            a_audio.save(f"a_audio_{lang_dict[language]}_last.mp3")
             st.markdown(f"**A_translate:** {a_trans}")
-        
-        else: 
-            answer = qa.run(question)
-            st.session_state.history.append({"question": question, "answer": answer})
+            st.audio(f"a_audio_{lang_dict[language]}_last.mp3", format='audio/mp3')
 
-            # Display the answer        
-            st.markdown(f"**Q:** {question}")
-            st.markdown(f"**A:** {answer}")
+            st.session_state.history.append({"q_en": q_en, 
+                                             "a_en": a_en,
+                                             f"q_{lang_dict[language]}": q_trans,
+                                             f"a_{lang_dict[language]}": a_trans
+                                             })
+            
+        # everything in English
+        else: 
+            q_en = question
+            q_audio = gTTS(text=q_en, lang=lang_dict[language], slow=False)
+            q_audio.save(f"q_audio_{lang_dict[language]}_last.mp3")   
+            st.markdown(f"**Q:** {q_en}")
+            st.audio(f"q_audio_{lang_dict[language]}_last.mp3", format='audio/mp3')
+
+            a_en = qa.run(q_en)
+            a_audio = gTTS(text=a_en, lang=lang_dict[language], slow=False)
+            a_audio.save(f"a_audio_{lang_dict[language]}_last.mp3")
+            st.markdown(f"**A:** {a_en}")
+            st.audio(f"a_audio_{lang_dict[language]}_last.mp3", format='audio/mp3')
+
+            st.session_state.history.append({"q_en": q_en, "a_en": a_en})
+
+def initialize_lang():
+    # Dropdown for language selection
+    selected_language  = st.selectbox('Language:', 
+                                    options=list(lang_dict.keys()))
+
+    # if button is clicked, show the selectbox
+    if selected_language:
+        st.session_state["language"] = selected_language
+    else:
+        st.session_state["language"] = 'English'
+
+    return selected_language
+
+def initialize_others(language):
+
+    # Initialize qa in session state if it doesn't exist
+    if 'qa' not in st.session_state:
+        st.session_state['qa'] = None
+
+    # Initialize qa in session state if it doesn't exist
+    if 'summary_en' not in st.session_state:
+        st.session_state['summary_en'] = None
+
+    # Initialize translated summary in session state if it doesn't exist
+    if f'summary_{lang_dict[language]}' not in st.session_state:
+        st.session_state[f'summary_{lang_dict[language]}'] = None
+
+def translate_summmary():
+    language = st.session_state["language"]
+    language_code = lang_dict[language]
+
+    summary = st.session_state["summary_en"]
+
+    if language != 'English':                
+        translated_summary = ts.translate_text(query_text = summary,
+                                                from_language='en',
+                                                to_language=language_code,
+                                                translator = 'google')   
+        st.session_state[f"summary_{language_code}"] = translated_summary
+
+def display_summary():
+    language = st.session_state["language"]
+    language_code = lang_dict[language]
+
+    if language != 'English':
+        st.markdown(st.session_state[f"summary_{language_code}"])
+
+    elif st.session_state.get('summary_en') is not None:
+        st.markdown(st.session_state["summary_en"])    
+
+    # audio out summary
+    if st.session_state.get(f"summary_{language_code}") is not None:
+        summary_audio = gTTS(text=st.session_state[f"summary_{language_code}"], lang=language_code, slow=False)  
+        summary_audio.save(f"summary_{language_code}_audio.mp3")
+        st.audio(f"summary_{language_code}_audio.mp3", format='audio/mp3')
 
 def main():
     """
@@ -178,71 +280,42 @@ def main():
     st.title("Game Video Guru")
 
     url = st.text_input("Enter Youtube video URL here")
-    translator = Translation()
 
-    # Dropdown for language selection
-    selected_language  = st.selectbox('Language:', 
-                                    options=list(translator.lang_dict.keys()))
+    if url != "":
+        st.video(url)
 
-    # if button is clicked, show the selectbox
-    if selected_language:
-        st.session_state["language"] = selected_language
-        # st.text(f'Selected Language: {st.session_state["language"]}')
-    else:
-        st.session_state["language"] = 'English'
-        
-    # Initialize qa in session state if it doesn't exist
-    if 'qa' not in st.session_state:
-        st.session_state['qa'] = None
-
-    # Initialize qa in session state if it doesn't exist
-    if 'summary' not in st.session_state:
-        st.session_state['summary'] = None
-
-    # Initialize translated summary in session state if it doesn't exist
-    if 'translated_summary' not in st.session_state:
-        st.session_state['translated_summary'] = None
+    language = initialize_lang()
 
     if st.button("Summarize"):
+        
+        initialize_others(language)
+
         if not youtube_video_url_is_valid(url):
             st.error("Please enter a valid Youtube video URL.")
             return
 
-        # if "history" not in st.session_state:
         st.session_state.history = []
 
+        # complete the code block before 'Summarizing...' Button status change
         with st.spinner("Summarizing..."):
 
             transcript = obtain_transcript(url)
-            summary = summarize(transcript)
-
-            # Word wrapping
-            width = 80
-            wrapped_summary = textwrap.fill(summary, width=width)
-            # st.session_state.history.append({"summary": wrapped_summary})
-            st.session_state["summary"] = wrapped_summary
+            summarize(transcript)
                         
-            # Translate the summary
-            if st.session_state.get("language") != 'English':                
-                translated_summary = ts.translate_text(query_text = summary,
-                                                       from_language='en',
-                                                       to_language=lang_dict[st.session_state["language"]],
-                                                       translator = 'google')   
-                st.session_state["translated_summary"] = translated_summary
 
+            # create qa retriever for subsequent QA session
             st.session_state['qa'] = create_qa_retriever(transcript)
 
-    if st.session_state.get("language") != 'English':
-        if st.session_state.get('translated_summary') is not None:
-            st.markdown(st.session_state["translated_summary"])
+    # Translate the summary
+    if language != 'English':
+        translate_summmary()
 
-    elif st.session_state.get('summary') is not None:
-        st.markdown(st.session_state["summary"])
+    if st.session_state.get("summary_en") is not None:
+        display_summary()
 
+    # execute Q&A session
     if st.session_state.get('qa') is not None:
-        qa_bot(st.session_state['qa'], 
-               language = st.session_state.get("language"), 
-               translator = translator)
+        qa_bot(st.session_state['qa'], language = st.session_state.get("language"))
 
 if __name__ == "__main__":
     main()
