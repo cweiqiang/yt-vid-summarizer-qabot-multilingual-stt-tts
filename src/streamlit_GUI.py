@@ -9,18 +9,18 @@ AOE4: https://www.youtube.com/watch?v=WjZiRvqjov8
 
 
 completed tasks:
-1. implement langchain query
-2. implement translation
-3. implement audio output
-4. implement video embedding
-1. implement audio input
+- implement langchain query
+- implement translation
+- implement audio output
+- implement video embedding
+- implement audio input
+- fix the error in _last.mp3
+- position the question input box at the top of QA section
+- modularize the qa_bot() function
 
 remaining tasks:
+- add docstring and type hints
 
-2. fix the error in _last.mp3
-3. position the question input box at the bottom
-4. add docstring and type hints
-5. modularize the qa_bot() function
 
 '''
 import re
@@ -153,12 +153,7 @@ def qa_bot(qa, language):
             # record .wave file into AudioData type
             with sr.AudioFile('audio.wave') as source:
                 audio = r.record(source)
-            # try:
             question = r.recognize_google(audio)
-            # except sr.UnknownValueError:
-            #     st.write("Could not understand audio")
-            # except sr.RequestError as e:
-            #     st.write("Couldn't request", e)
     
     # generate answer for the user's question
     if question and (st.session_state['last_question'] != question):
