@@ -1,17 +1,25 @@
 # https://docs.streamlit.io/knowledge-base/tutorials/build-conversational-apps
 '''
+
+KSP2: https://www.youtube.com/watch?v=SwKYq17W-_s&t=15s
+KSP1: https://www.youtube.com/watch?v=YUpPDAqrf48
+CIV5: https://www.youtube.com/watch?v=f5VQ_c5v4XM
+CIV5: https://www.youtube.com/watch?v=ZVqWCdKif3c
+AOE4: https://www.youtube.com/watch?v=WjZiRvqjov8
+
+
 completed tasks:
-1. implement langchain query
-2. implement translation
-3. implement audio output
-4. implement video embedding
+- implement langchain query
+- implement translation
+- implement audio output
+- implement video embedding
+- implement audio input
+- fix the error in _last.mp3
+- position the question input box at the top of QA section
+- modularize the qa_bot() function
 
 remaining tasks:
-1. implement audio input
-2. fix the error in _last.mp3
-3. position the question input box at the bottom
-4. add docstring and type hints
-5. modularize the qa_bot() function
+- add docstring and type hints
 
 
 '''
@@ -35,7 +43,8 @@ from langchain.document_loaders import YoutubeLoader
 from langchain.embeddings import VertexAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
-from translation import Translation
+from audio_recorder_streamlit import audio_recorder
+import speech_recognition as sr
 import translators as ts
 
 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = './aiap-13-ds-7e16bb946970.json'
@@ -48,17 +57,24 @@ lang_dict = {
 
 def youtube_video_url_is_valid(url: str) -> bool:
 
-    # pattern = r'^https:\/\/www\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)(\&ab_channel=[\w\d]+)?$'
     pattern = r'^https:\/\/www\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)(\&[a-zA-Z0-9_]+=[\w\d]+)*$'
 
     match = re.match(pattern, url)
     return match is not None
 
 def obtain_transcript(url: str) -> str:
-
     try:
-        loader = YoutubeLoader.from_youtube_url(url, language="en-US")
-        return loader.load() # full transcript is return
+        # loader = YoutubeLoader.from_youtube_url(url, language="en-US")
+        loader = YoutubeLoader.from_youtube_url(url, 
+                                                add_video_info=True, 
+                                                language=["en", "de", "nl", "sv", "da", "no", "fr", "es", "it", "pt"], 
+                                                translation="en",  
+                                                )
+
+        transcript = loader.load()
+
+        return transcript # full transcript is return
+        
     except Exception as e:
         return f"Error while loading YouTube video and transcript: {e}"
 
@@ -123,7 +139,47 @@ def create_qa_retriever(transcript: str):
 
 def qa_bot(qa, language):
 
-    # Display previous Q&A
+    # Get the new question
+    col1, col2 = st.columns(2)
+    with col1:
+        question = st.text_input("Ask a question:")        
+    with col2:
+        audio_data = audio_recorder()
+        if audio_data is not None:
+            # write bytestring to .wave file
+            with open('audio.wave', 'wb') as f:
+                f.write(audio_data)
+            r = sr.Recognizer()
+            # record .wave file into AudioData type
+            with sr.AudioFile('audio.wave') as source:
+                audio = r.record(source)
+            question = r.recognize_google(audio)
+    
+    # generate answer for the user's question
+    if question and (st.session_state['last_question'] != question):
+        
+        # update the last question
+        st.session_state['last_question'] = question
+
+        # Run the QA chain to query the data
+        if language != 'English':
+            q_trans = question
+            q_en = ts.translate_text(query_text = q_trans,
+                                        from_language=lang_dict[language],
+                                        to_language='en',
+                                        translator = 'google')  
+
+            a_en = st.session_state['qa'].run(q_en)
+            st.session_state.history.append({"q_en": q_en, 
+                                             "a_en": a_en})
+            
+        # everything in English
+        else: 
+            q_en = question
+            a_en = qa.run(q_en)
+            st.session_state.history.append({"q_en": q_en, "a_en": a_en})
+
+    # Display all Q&A
     for i, q_and_a in enumerate(st.session_state.history):
         if language != 'English':
 
@@ -148,12 +204,6 @@ def qa_bot(qa, language):
                 q_audio.save(f"q_audio_{lang_dict[language]}_{i}.mp3")              
                 a_audio.save(f"a_audio_{lang_dict[language]}_{i}.mp3")           
                
-            st.markdown(f"**Q_translate:** {q_and_a[f'q_{lang_dict[language]}']}")
-            st.audio(f"q_audio_{lang_dict[language]}_{i}.mp3", format='audio/mp3')
-
-            st.markdown(f"**A_translate:** {q_and_a[f'a_{lang_dict[language]}']}")
-            st.audio(f"a_audio_{lang_dict[language]}_{i}.mp3", format='audio/mp3')
-        
         # everything in English
         else:
             if not os.path.exists(f"q_audio_{lang_dict[language]}_{i}.mp3"): 
@@ -162,60 +212,15 @@ def qa_bot(qa, language):
                 q_audio.save(f"q_audio_{lang_dict[language]}_{i}.mp3")              
                 a_audio.save(f"a_audio_{lang_dict[language]}_{i}.mp3")
 
-            st.markdown(f"**Q:** {q_and_a['q_en']}")
-            st.audio(f"q_audio_{lang_dict[language]}_{i}.mp3", format='audio/mp3')
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f'<p style="color:green;">**Q{i}:** {q_and_a[f"q_{lang_dict[language]}"]}</p>', unsafe_allow_html=True)
+            st.audio(f'q_audio_{lang_dict[language]}_{i}.mp3', format='audio/mp3')
 
-            st.markdown(f"**A:** {q_and_a['a_en']}")
-            st.audio(f"a_audio_{lang_dict[language]}_{i}.mp3", format='audio/mp3')
-
-    # Get the new question
-    question = st.text_input("Ask a question:")
-
-    # generate answer for the user's question
-    if question:
-        # Run the QA chain to query the data
-        if language != 'English':
-            q_trans = question
-            q_en = ts.translate_text(query_text = q_trans,
-                                        from_language=lang_dict[language],
-                                        to_language='en',
-                                        translator = 'google')  
-            q_audio = gTTS(text=q_trans, lang=lang_dict[language], slow=False)
-            q_audio.save(f"q_audio_{lang_dict[language]}_last.mp3")              
-            st.markdown(f"**Q_translate:** {q_trans}")
-            st.audio(f"q_audio_{lang_dict[language]}_last.mp3", format='audio/mp3')
-
-            a_en = st.session_state['qa'].run(q_en)
-            a_trans = ts.translate_text(query_text = a_en,
-                                        from_language='en',
-                                        to_language=lang_dict[language],
-                                        translator = 'google')  
-            a_audio = gTTS(text=a_trans, lang=lang_dict[language], slow=False)
-            a_audio.save(f"a_audio_{lang_dict[language]}_last.mp3")
-            st.markdown(f"**A_translate:** {a_trans}")
-            st.audio(f"a_audio_{lang_dict[language]}_last.mp3", format='audio/mp3')
-
-            st.session_state.history.append({"q_en": q_en, 
-                                             "a_en": a_en,
-                                             f"q_{lang_dict[language]}": q_trans,
-                                             f"a_{lang_dict[language]}": a_trans
-                                             })
-            
-        # everything in English
-        else: 
-            q_en = question
-            q_audio = gTTS(text=q_en, lang=lang_dict[language], slow=False)
-            q_audio.save(f"q_audio_{lang_dict[language]}_last.mp3")   
-            st.markdown(f"**Q:** {q_en}")
-            st.audio(f"q_audio_{lang_dict[language]}_last.mp3", format='audio/mp3')
-
-            a_en = qa.run(q_en)
-            a_audio = gTTS(text=a_en, lang=lang_dict[language], slow=False)
-            a_audio.save(f"a_audio_{lang_dict[language]}_last.mp3")
-            st.markdown(f"**A:** {a_en}")
-            st.audio(f"a_audio_{lang_dict[language]}_last.mp3", format='audio/mp3')
-
-            st.session_state.history.append({"q_en": q_en, "a_en": a_en})
+        # Add A to the right column
+        with col2:
+            st.markdown(f'<p style="color:brown;">**A{i}:** {q_and_a[f"a_{lang_dict[language]}"]}</p>', unsafe_allow_html=True)
+            st.audio(f'a_audio_{lang_dict[language]}_{i}.mp3', format='audio/mp3')
 
 def initialize_lang():
     # Dropdown for language selection
@@ -231,7 +236,6 @@ def initialize_lang():
     return selected_language
 
 def initialize_others(language):
-
     # Initialize qa in session state if it doesn't exist
     if 'qa' not in st.session_state:
         st.session_state['qa'] = None
@@ -243,6 +247,9 @@ def initialize_others(language):
     # Initialize translated summary in session state if it doesn't exist
     if f'summary_{lang_dict[language]}' not in st.session_state:
         st.session_state[f'summary_{lang_dict[language]}'] = None
+
+    if 'last_question' not in st.session_state:
+        st.session_state['last_question'] = None
 
 def translate_summmary():
     language = st.session_state["language"]
@@ -300,8 +307,8 @@ def main():
         with st.spinner("Summarizing..."):
 
             transcript = obtain_transcript(url)
-            summarize(transcript)
-                        
+
+            summarize(transcript)                                    
 
             # create qa retriever for subsequent QA session
             st.session_state['qa'] = create_qa_retriever(transcript)
