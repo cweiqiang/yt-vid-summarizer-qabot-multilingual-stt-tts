@@ -3,7 +3,6 @@
 
 KSP2: https://www.youtube.com/watch?v=SwKYq17W-_s&t=15s
 KSP1: https://www.youtube.com/watch?v=YUpPDAqrf48
-CIV5: https://www.youtube.com/watch?v=f5VQ_c5v4XM
 CIV5: https://www.youtube.com/watch?v=ZVqWCdKif3c
 AOE4: https://www.youtube.com/watch?v=WjZiRvqjov8
 
@@ -17,6 +16,8 @@ completed tasks:
 - fix the error in _last.mp3
 - position the question input box at the top of QA section
 - modularize the qa_bot() function
+- added garbage collector for old .mp3 files
+- fixed the problem with persistent text and audio input
 
 remaining tasks:
 - add docstring and type hints
@@ -56,6 +57,15 @@ lang_dict = {
         }
 
 def youtube_video_url_is_valid(url: str) -> bool:
+    """
+    Checks if the given URL is a valid YouTube video URL.
+
+    Args:
+        url (str): The YouTube video URL.
+
+    Returns:
+        bool: True if the URL is valid, False otherwise.
+    """
 
     pattern = r'^https:\/\/www\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)(\&[a-zA-Z0-9_]+=[\w\d]+)*$'
 
@@ -63,6 +73,15 @@ def youtube_video_url_is_valid(url: str) -> bool:
     return match is not None
 
 def obtain_transcript(url: str) -> str:
+    """
+    Obtains the transcript of a YouTube video.
+
+    Args:
+        url (str): The YouTube video URL.
+
+    Returns:
+        str: The transcript of the YouTube video.
+    """
     try:
         # loader = YoutubeLoader.from_youtube_url(url, language="en-US")
         loader = YoutubeLoader.from_youtube_url(url, 
@@ -80,6 +99,15 @@ def obtain_transcript(url: str) -> str:
 
 
 def summarize(transcript: str) -> str:
+    """
+    Summarizes the given transcript.
+
+    Args:
+        transcript (str): The transcript to be summarized.
+
+    Returns:
+        str: The summary of the transcript.
+    """
     try:
         # llm = OpenAI(temperature=0.6, openai_api_key=api_key)
         llm = VertexAI(temperature=0.3, max_output_tokens = 512)
@@ -110,7 +138,16 @@ def summarize(transcript: str) -> str:
     return answer.strip()
 
 # Main part of the Streamlit app
-def get_file_download_link(filename):
+def get_file_download_link(filename: str) -> str:
+    """
+    Generates a download link for the specified file.
+
+    Args:
+        filename (str): The name of the file to be downloaded.
+
+    Returns:
+        str: The HTML code for the download link.
+    """
 
     with open(filename, 'rb') as f:
         data = f.read()
@@ -118,7 +155,16 @@ def get_file_download_link(filename):
     href = f'<a href="data:file/txt;base64,{b64}" download="{filename}">Download {filename}</a>'
     return href
 
-def create_qa_retriever(transcript: str):
+def create_qa_retriever(transcript: str) -> RetrievalQA:
+    """
+    Creates a question-answering (QA) retriever based on the given transcript.
+
+    Args:
+        transcript (str): The transcript to create the QA retriever from.
+
+    Returns:
+        RetrievalQA: The QA retriever object.
+    """
 
     # Initialize text splitter for QA
     text_splitter_qa = TokenTextSplitter(chunk_size=1000, chunk_overlap=200)
@@ -137,7 +183,14 @@ def create_qa_retriever(transcript: str):
 
     return qa
 
-def qa_bot(qa, language):
+def qa_bot(qa: RetrievalQA, language: str):
+    """
+    Runs the question-answering (QA) bot.
+
+    Args:
+        qa (RetrievalQA): The QA retriever object.
+        language (str): The selected language for the bot.
+    """
 
     # Get the new question
     col1, col2 = st.columns(2)
@@ -145,7 +198,8 @@ def qa_bot(qa, language):
         question = st.text_input("Ask a question:")        
     with col2:
         audio_data = audio_recorder()
-        if audio_data is not None:
+        if audio_data is not None and (st.session_state['last_audio_data'] != audio_data):
+            st.session_state['last_audio_data'] = audio_data
             # write bytestring to .wave file
             with open('audio.wave', 'wb') as f:
                 f.write(audio_data)
@@ -153,8 +207,9 @@ def qa_bot(qa, language):
             # record .wave file into AudioData type
             with sr.AudioFile('audio.wave') as source:
                 audio = r.record(source)
+                print(audio)
             question = r.recognize_google(audio)
-    
+
     # generate answer for the user's question
     if question and (st.session_state['last_question'] != question):
         
@@ -170,7 +225,8 @@ def qa_bot(qa, language):
                                         translator = 'google')  
 
             a_en = st.session_state['qa'].run(q_en)
-            st.session_state.history.append({"q_en": q_en, 
+            st.session_state.history.append({f'q_{lang_dict[language]}': q_trans,
+                                             "q_en": q_en, 
                                              "a_en": a_en})
             
         # everything in English
@@ -181,48 +237,46 @@ def qa_bot(qa, language):
 
     # Display all Q&A
     for i, q_and_a in enumerate(st.session_state.history):
-        if language != 'English':
-
-            q_trans = ts.translate_text(query_text = q_and_a['q_en'],
-                                        from_language='en',
-                                        to_language=lang_dict[language],
-                                        translator = 'google')      
-                    
-            a_trans = ts.translate_text(query_text = q_and_a['a_en'],
-                                        from_language='en',
-                                        to_language=lang_dict[language],
-                                        translator = 'google')  
-
+        if language != 'English' and (q_and_a.get('q_en') is not None):
             # if not already translated to the same language before
-            if st.session_state.history[i].get(f'q_{lang_dict[language]}') is None:
+            if st.session_state.history[i].get(f'a_{lang_dict[language]}') is None:
+                if st.session_state.history[i].get(f'q_{lang_dict[language]}') is None:
+                    q_trans = ts.translate_text(query_text = q_and_a['q_en'],
+                                                from_language='en',
+                                                to_language=lang_dict[language],
+                                                translator = 'google')      
+                else:
+                    q_trans = q_and_a[f'q_{lang_dict[language]}']
+                a_trans = ts.translate_text(query_text = q_and_a['a_en'],
+                                            from_language='en',
+                                            to_language=lang_dict[language],
+                                            translator = 'google')  
                 st.session_state.history[i][f'q_{lang_dict[language]}'] = q_trans
                 st.session_state.history[i][f'a_{lang_dict[language]}'] = a_trans
             
-            if not os.path.exists(f"q_audio_{lang_dict[language]}_{i}.mp3"): 
-                q_audio = gTTS(text=q_and_a[f'q_{lang_dict[language]}'], lang=lang_dict[language], slow=False)
-                a_audio = gTTS(text=q_and_a[f'a_{lang_dict[language]}'], lang=lang_dict[language], slow=False)
-                q_audio.save(f"q_audio_{lang_dict[language]}_{i}.mp3")              
-                a_audio.save(f"a_audio_{lang_dict[language]}_{i}.mp3")           
-               
-        # everything in English
-        else:
-            if not os.path.exists(f"q_audio_{lang_dict[language]}_{i}.mp3"): 
-                q_audio = gTTS(text=q_and_a['q_en'], lang='en', slow=False)
-                a_audio = gTTS(text=q_and_a['a_en'], lang='en', slow=False)
-                q_audio.save(f"q_audio_{lang_dict[language]}_{i}.mp3")              
-                a_audio.save(f"a_audio_{lang_dict[language]}_{i}.mp3")
-
+        if not os.path.exists(f"./data/q_audio_{lang_dict[language]}_{i}.mp3"): 
+            q_audio = gTTS(text=q_and_a[f'q_{lang_dict[language]}'], lang=lang_dict[language], slow=False)
+            a_audio = gTTS(text=q_and_a[f'a_{lang_dict[language]}'], lang=lang_dict[language], slow=False)
+            q_audio.save(f"./data/q_audio_{lang_dict[language]}_{i}.mp3")              
+            a_audio.save(f"./data/a_audio_{lang_dict[language]}_{i}.mp3")           
+              
         col1, col2 = st.columns(2)
         with col1:
             st.markdown(f'<p style="color:green;">**Q{i}:** {q_and_a[f"q_{lang_dict[language]}"]}</p>', unsafe_allow_html=True)
-            st.audio(f'q_audio_{lang_dict[language]}_{i}.mp3', format='audio/mp3')
+            st.audio(f'./data/q_audio_{lang_dict[language]}_{i}.mp3', format='audio/mp3')
 
         # Add A to the right column
         with col2:
-            st.markdown(f'<p style="color:brown;">**A{i}:** {q_and_a[f"a_{lang_dict[language]}"]}</p>', unsafe_allow_html=True)
-            st.audio(f'a_audio_{lang_dict[language]}_{i}.mp3', format='audio/mp3')
+            st.markdown(f'<p style="color:black;">**A{i}:** {q_and_a[f"a_{lang_dict[language]}"]}</p>', unsafe_allow_html=True)
+            st.audio(f'./data/a_audio_{lang_dict[language]}_{i}.mp3', format='audio/mp3')
 
-def initialize_lang():
+def initialize_lang() -> str:
+    """
+    Initializes the selected language.
+
+    Returns:
+        str: The selected language.
+    """
     # Dropdown for language selection
     selected_language  = st.selectbox('Language:', 
                                     options=list(lang_dict.keys()))
@@ -235,7 +289,13 @@ def initialize_lang():
 
     return selected_language
 
-def initialize_others(language):
+def initialize_others(language: str):
+    """
+    Initializes other session states.
+
+    Args:
+        language (str): The selected language.
+    """
     # Initialize qa in session state if it doesn't exist
     if 'qa' not in st.session_state:
         st.session_state['qa'] = None
@@ -251,7 +311,27 @@ def initialize_others(language):
     if 'last_question' not in st.session_state:
         st.session_state['last_question'] = None
 
-def translate_summmary():
+    if 'last_audio_data' not in st.session_state:
+        st.session_state['last_audio_data'] = None
+
+    # Remove .mp3 files in the current directory
+    directory = './data'
+    for file in os.listdir(directory):
+        if file.endswith('.mp3'):
+            file_path = os.path.join(directory, file)
+            os.remove(file_path)
+
+def translate_summary():
+    """
+    Translates the summary to the selected language.
+
+    This function translates the summary from English to the selected language
+    using the Google Translate API and stores the translated summary in the
+    session state.
+
+    Raises:
+        Exception: Error while translating the summary.
+    """
     language = st.session_state["language"]
     language_code = lang_dict[language]
 
@@ -265,6 +345,17 @@ def translate_summmary():
         st.session_state[f"summary_{language_code}"] = translated_summary
 
 def display_summary():
+    """
+    Displays the summary in the selected language.
+
+    This function displays the summary in the selected language. If the selected
+    language is not English, it retrieves the translated summary from the session
+    state and displays it. If the selected language is English, it retrieves the
+    original English summary from the session state and displays it.
+
+    Raises:
+        FileNotFoundError: Audio file for the translated summary not found.
+    """
     language = st.session_state["language"]
     language_code = lang_dict[language]
 
@@ -277,14 +368,14 @@ def display_summary():
     # audio out summary
     if st.session_state.get(f"summary_{language_code}") is not None:
         summary_audio = gTTS(text=st.session_state[f"summary_{language_code}"], lang=language_code, slow=False)  
-        summary_audio.save(f"summary_{language_code}_audio.mp3")
-        st.audio(f"summary_{language_code}_audio.mp3", format='audio/mp3')
+        summary_audio.save(f"./data/summary_{language_code}_audio.mp3")
+        st.audio(f"./data/summary_{language_code}_audio.mp3", format='audio/mp3')
 
 def main():
     """
     Main function to run the Streamlit application for YouTube video summarization.
     """
-    st.title("Game Video Guru")
+    st.title("Video Guru")
 
     url = st.text_input("Enter Youtube video URL here")
 
@@ -314,8 +405,8 @@ def main():
             st.session_state['qa'] = create_qa_retriever(transcript)
 
     # Translate the summary
-    if language != 'English':
-        translate_summmary()
+    if language != 'English' and (st.session_state.get("summary_en") is not None):
+        translate_summary()
 
     if st.session_state.get("summary_en") is not None:
         display_summary()
