@@ -10,3 +10,4 @@ torch==2.0.1
 ipykernel==6.23.3
 tiktoken==0.4.0
 speech_recognition==3.10.0
+translators==4.9.1
