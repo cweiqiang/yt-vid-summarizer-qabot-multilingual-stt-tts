@@ -1,3 +1,14 @@
+To see a Youtube demo video on this Streamlit GUI app to see the Youtube QA bot, summarizer and its Multilingual Speech to Text and Text to Speech capabilities, pls view this Youtube video ["YouTube Transcript Summarizer and Q&A Chatbot with Multilingual Text-to-Speech (TTS) features"](https://www.youtube.com/watch?v=DkzTGdBTqNU)
+
+
+Note!!! You would need Google Vertex Credentials to run these scripts!
+Yes this QAbot is powered by Google VertexAI
+
+
+You can also edit the code in their respective components to use OpenAI LLM instead of VerteXAI powered components.
+
+For security and privacy reasons, we shall not be uploading the file that contains the (expired) credentials, to setup Google Cloud credentials, see this [link](https://cloud.google.com/vertex-ai/docs/workbench/reference/authentication).
+
 To start using the python packages for this repository
 
 
@@ -13,11 +24,13 @@ conda activate vertex-ai-sdk-env
 pip install -r requirements.txt
 ```
 
-To run the Streamlit app for the Youtube transcript text summarizer and text-to-speech convertor, use the following command
+To run the Streamlit GUI app for the Youtube transcript text summarizer and text-to-speech convertor, use the following command
 
 ```bash
-streamlit run src/streamlit_yt_summarizer_app.py
+streamlit run src/streamlit_GUI.py
 ```
+
+
 
 Input a Youtube url such as the Genshin Impact version 3.8 Special Program
 `https://www.youtube.com/watch?v=jlivBvu3Jrc`
