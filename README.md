@@ -27,7 +27,13 @@ pip install -r requirements.txt
 To run the Streamlit GUI app for the Youtube transcript text summarizer and text-to-speech convertor, use the following command
 
 ```bash
-streamlit run src/streamlit_GUI.py
+streamlit run src/streamlit_GUI_OpenAI.py
+```
+
+OR
+
+```bash
+streamlit run src/streamlit_GUI_OpenAI.py
 ```
 
 

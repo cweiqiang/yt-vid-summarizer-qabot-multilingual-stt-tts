@@ -34,31 +34,58 @@ from gtts import gTTS
 import base64
 import textwrap
 # from langchain.llms import OpenAI
-from langchain.llms import VertexAI
+# from langchain.llms import VertexAI
+from langchain.llms import OpenAI
 from langchain.prompts import PromptTemplate
 from langchain.chains.summarize import load_summarize_chain
 from langchain.document_loaders import YoutubeLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter, TokenTextSplitter
-from langchain.chat_models import ChatVertexAI
+from langchain.chat_models import ChatOpenAI
+# from langchain.chat_models import ChatVertexAI
 from langchain.document_loaders import YoutubeLoader
-from langchain.embeddings import VertexAIEmbeddings
+from langchain.embeddings import OpenAIEmbeddings
+# from langchain.embeddings import VertexAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from audio_recorder_streamlit import audio_recorder
 import speech_recognition as sr
 import translators as ts
 
-# https://cloud.google.com/docs/authentication/provide-credentials-adc
-# os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = './aiap-13-ds-7e16bb946970.json'
-# https://cloud.google.com/docs/authentication/application-default-credentials#personal
-# ls $HOME/.config/gcloud/application_default_credentials.json
-os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = '/home/waynechen/.config/gcloud/application_default_credentials.json'
+from dotenv import load_dotenv, find_dotenv
 
+# read local .env file with OPENAI_API_KEY [Recommended]
+# it searches for .env file in the current directory
+# and loads the environment variables from it
+# To run openAI API, you need to set up the OPENAI_API_KEY in .env file
+_ = load_dotenv(find_dotenv())
+
+# os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = '/home/waynechen/.config/gcloud/application_default_credentials.json'
+
+api_key = os.getenv("OPENAI_API_KEY")
+# For English video transcript
+# e.g. OpenAI dev day : https://www.youtube.com/watch?v=qJp6JPRzQ_8
 lang_dict = {
     'English': 'en',
-    'Bahasa Melayu': 'ms',
-    'Chinese (Simplified)': 'zh-CN'
+    'ms-MY': 'ms',
+    'zh': 'zh-CN',
+    'zh-TW': 'zh-TW',
+    "ta-SG": "ta",
+    "ja-JP": "ja",
+    "ko-KR": "ko",
+    "yue-Hant-HK": "yue"
 }
+# For Selected video transcript in Chinese
+# e.g. Chinese News https://www.youtube.com/watch?v=jeXalyWP7HE
+# lang_dict = {
+#     'English': 'en',
+#     'ms-MY': 'ms',
+#     'zh': "zh-Hans",
+#     'zh-TW': "zh-Hant",
+#     "ta-SG": "ta",
+#     "ja-JP": "ja",
+#     "ko-KR": "ko",
+#     "yue-Hant-HK": "yue"
+# }
 
 
 def youtube_video_url_is_valid(url: str) -> bool:
@@ -93,7 +120,9 @@ def obtain_transcript(url: str) -> str:
         loader = YoutubeLoader.from_youtube_url(url,
                                                 add_video_info=True,
                                                 language=[
-                                                    "en", "de", "nl", "sv", "da", "no", "fr", "es", "it", "pt"],
+                                                    "en", "de", "nl", "sv", "da", "no", "fr", "es", "it",
+                                                    "ms", "pt", 'zh-CN', 'zh-TW',
+                                                    "zh-Hans", "zh-Hant", "ja", "ko", "ru", "pl", "cs", "tr", "th"],
                                                 translation="en",
                                                 )
 
@@ -116,8 +145,10 @@ def summarize(transcript: str) -> str:
         str: The summary of the transcript.
     """
     try:
-        # llm = OpenAI(temperature=0.6, openai_api_key=api_key)
-        llm = VertexAI(temperature=0.3, max_output_tokens=512)
+        llm = OpenAI(temperature=0.3,
+                     model='gpt-3.5-turbo',
+                     openai_api_key=api_key)
+        # llm = VertexAI(temperature=0.3, max_output_tokens=512)
         prompt = PromptTemplate(
             template="""Summarize the youtube video whose transcript is provided within backticks \
             ```{text}```
@@ -179,14 +210,23 @@ def create_qa_retriever(transcript: str) -> RetrievalQA:
     # Initialize text splitter for QA
     text_splitter_qa = TokenTextSplitter(chunk_size=1000, chunk_overlap=200)
 
+    print("text_splitter_qa: ", text_splitter_qa)
+    print("type(text_splitter_qa): ", type(text_splitter_qa))
+
+    print("transcript: ", transcript)
+
     # Split text into docs for QA
     docs_qa = text_splitter_qa.split_documents(transcript)
 
     # Create the LLM model for the question answering
-    llm_question_answer = ChatVertexAI(temperature=0.2)
+    # llm_question_answer = ChatVertexAI(temperature=0.2)
+    llm_question_answer = ChatOpenAI(temperature=0.2,
+                                     model='gpt-3.5-turbo',
+                                     openai_api_key=api_key)
 
     # Create the vector database and RetrievalQA Chain
-    embeddings = VertexAIEmbeddings()
+    # embeddings = VertexAIEmbeddings()
+    embeddings = OpenAIEmbeddings(openai_api_key=api_key)
     db = FAISS.from_documents(docs_qa, embeddings)
     qa = RetrievalQA.from_chain_type(
         llm=llm_question_answer, chain_type="stuff", retriever=db.as_retriever())
@@ -219,7 +259,8 @@ def qa_bot(qa: RetrievalQA, language: str):
             with sr.AudioFile('audio.wave') as source:
                 audio = r.record(source)
                 print(audio)
-            question = r.recognize_google(audio)
+                print(language)
+            question = r.recognize_google(audio, language=language)
 
     # generate answer for the user's question
     if question and (st.session_state['last_question'] != question):
@@ -423,12 +464,14 @@ def main():
 
             transcript = obtain_transcript(url)
 
+            # print("Line 443: transcript: ", transcript)
+
             summarize(transcript)
 
             # create qa retriever for subsequent QA session
             st.session_state['qa'] = create_qa_retriever(transcript)
 
-    # Translate the summary
+    # Translate the summary if the selected language is not English
     if language != 'English' and (st.session_state.get("summary_en") is not None):
         translate_summary()
 
